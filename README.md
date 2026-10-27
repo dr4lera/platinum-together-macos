@@ -1,4 +1,4 @@
-# Platinum Together for macOS
+# Platinum Together — Unofficial Mac Port
 
 Unofficial macOS launcher for the **current official game**, using Wine + Mesa. The game executable is downloaded from its official signed feed; it is not a native game rewrite. The launcher is native SwiftUI.
 
