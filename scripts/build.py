@@ -55,7 +55,7 @@ plain_copy(ROOT/'THIRD_PARTY_NOTICES.md',res/'ThirdPartyNotices/THIRD_PARTY_NOTI
 (stage/'Applications').symlink_to('/Applications')
 plain_copy(ROOT/'START HERE.txt',stage/'START HERE.txt')
 run('codesign','--force','--deep','--sign','-',app);run('codesign','--verify','--deep','--strict',app)
-image=D/'PlatinumTogether-macOS-0.1.21-mac.3.dmg'
+image=D/'PlatinumTogether-macOS-0.1.21-mac.4.dmg'
 # HFS hybrid creation works in restricted build environments where create -srcfolder fails.
 hybrid=B/'PlatinumTogether-hybrid.iso'
 for old in (hybrid,Path(str(hybrid)+'.dmg')):

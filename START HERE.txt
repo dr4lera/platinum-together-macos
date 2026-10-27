@@ -10,6 +10,9 @@ PLATINUM TOGETHER — MAC COMPATIBILITY EDITION
    For an existing offline installation, save and exit the game,
    click your account in the launcher, then Connect game account.
 6. Leave potato graphics enabled for best compatibility.
+7. Keep the launcher open while playing. Ctrl+R returns to your last
+   save; if its Windows restart hangs, recovery takes about 8–12 seconds.
+   Save first unless you intend to discard unsaved progress.
 
 Install / Repair installs or repairs the latest signed game release.
 Check for Updates checks availability; use Install / Repair to install.

@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import SwiftUI
 import AVFoundation
 import Security
@@ -15,6 +16,8 @@ final class LauncherModel: ObservableObject {
     @Published var gameBusy = false
     @Published var gameMessage = ""
     @Published var isPlaying = false
+    private var resetTimer: Timer?
+    private var resetRestarts: [Date] = []
     private var launchPending = false
     private var pendingGamePath: String?
     private var pendingGameCredential: Data?
@@ -39,6 +42,39 @@ final class LauncherModel: ObservableObject {
     }
     var wineRoot: URL { Bundle.main.resourceURL!.appendingPathComponent("Compatibility/Wine") }
     var canPlay: Bool { gameDataInstalled && FileManager.default.isExecutableFile(atPath:wineRoot.appendingPathComponent("bin/wine").path) }
+    private static func resetRequest(_ root:URL, excluding:Set<String>) -> Date? {
+        let fm=FileManager.default
+        let logs=root.appendingPathComponent("logs")
+        let fresh=((try? fm.contentsOfDirectory(at:logs,includingPropertiesForKeys:[.contentModificationDateKey])) ?? []).filter {!excluding.contains($0.lastPathComponent) && $0.pathExtension=="log"}
+        for log in fresh {
+            guard let modified=(try? log.resourceValues(forKeys:[.contentModificationDateKey]))?.contentModificationDate,
+                  let handle=try? FileHandle(forReadingFrom:log) else {continue}
+            defer {try? handle.close()}
+            guard let end=try? handle.seekToEnd() else {continue}
+            try? handle.seek(toOffset:end>8192 ? end-8192 : 0)
+            let tail=String(decoding:(try? handle.read(upToCount:8192)) ?? Data(),as:UTF8.self)
+            if let last=tail.split(whereSeparator:{$0.isNewline}).last,
+               last.contains("RESET"),last.contains("going back to the last save") {return modified}
+        }
+        return nil
+    }
+    private func restartAfterReset() {
+        resetRestarts=resetRestarts.filter {Date().timeIntervalSince($0)<60}
+        guard resetRestarts.count<3 else {gameMessage="Soft reset stopped after repeated retries. Close and reopen the game from Play.";return}
+        resetRestarts.append(Date());gameMessage="Returning to your last save…"
+        DispatchQueue.main.asyncAfter(deadline:.now()+1) {self.playGame()}
+    }
+    private static func backupBeforeReset(_ root:URL, home:URL) throws {
+        let fm=FileManager.default
+        let backup=home.appendingPathComponent("Backups/before-soft-reset-"+UUID().uuidString)
+        try fm.createDirectory(at:backup,withIntermediateDirectories:true)
+        for item in try fm.contentsOfDirectory(at:root,includingPropertiesForKeys:nil) {
+            let name=item.lastPathComponent
+            if name=="worlds" || name.hasPrefix("save") && name.hasSuffix(".bin") || name.hasPrefix("world") && (name.hasSuffix(".txt") || name.hasSuffix(".ini")) || name=="quick-restart.ini" {
+                try fm.copyItem(at:item,to:backup.appendingPathComponent(name))
+            }
+        }
+    }
     private static func helperResponse(_ handle:FileHandle) throws -> Data {
         // Wine services may inherit stdout and outlive the helper; read its one-line reply, not EOF.
         defer {try? handle.close()}
@@ -115,18 +151,38 @@ final class LauncherModel: ObservableObject {
                     try lines.joined(separator:"\n").write(to:settings,atomically:true,encoding:.utf8)
                     try Data("low graphics defaults applied once\n".utf8).write(to:defaultsMarker,options:.atomic)
                 }
+                let previousLogs=Set((try? fm.contentsOfDirectory(atPath:gameRoot.appendingPathComponent("logs").path)) ?? [])
                 let process=Process();process.executableURL=runtime.appendingPathComponent("bin/wine")
                 process.arguments=["Platinum.exe"];process.currentDirectoryURL=URL(fileURLWithPath:rootPath);process.environment=environment
                 process.standardOutput=log;process.standardError=log
                 process.terminationHandler={ [weak self] process in
                     try? log.close()
-                    DispatchQueue.main.async { guard let self else {return};self.isPlaying=false;self.gameBusy=false;self.gameProcess=nil
+                    DispatchQueue.main.async { guard let self else {return};self.resetTimer?.invalidate();self.resetTimer=nil;self.isPlaying=false;self.gameBusy=false;self.gameProcess=nil
+                        if Self.resetRequest(gameRoot,excluding:previousLogs) != nil {self.restartAfterReset();return}
                         self.gameMessage=process.terminationStatus==0 ? "Game closed." : "Game exited (code \(process.terminationStatus)). Open Logs in Settings for details."
                         self.updateMedia()
                     }
                 }
                 try process.run()
-                DispatchQueue.main.async { self.gameProcess=process;self.gameLog=log;self.isPlaying=true;self.launchPending=false;self.gameBusy=false;self.gameMessage="Game running in compatibility mode.";self.audio?.pause();self.video.pause() }
+                DispatchQueue.main.async {
+                    guard process.isRunning else {return}
+                    self.gameProcess=process;self.gameLog=log;self.isPlaying=true;self.launchPending=false;self.gameBusy=false;self.gameMessage="Game running in compatibility mode.";self.audio?.pause();self.video.pause()
+                    self.resetTimer?.invalidate()
+                    self.resetTimer=Timer.scheduledTimer(withTimeInterval:2,repeats:true) { [weak self,weak process] timer in
+                        guard let self,let process,process.isRunning else {timer.invalidate();return}
+                        guard let requested=Self.resetRequest(gameRoot,excluding:previousLogs),Date().timeIntervalSince(requested)>8 else {return}
+                        timer.invalidate();self.gameMessage="Completing the requested soft reset…"
+                        DispatchQueue.global(qos:.userInitiated).async {
+                            do {try Self.backupBeforeReset(gameRoot,home:self.supportHome)}
+                            catch {DispatchQueue.main.async {self.gameMessage="Couldn't back up the reset state: \(error.localizedDescription)"};return}
+                            guard process.isRunning else {return}
+                            process.terminate()
+                            DispatchQueue.global().asyncAfter(deadline:.now()+3) {
+                                if process.isRunning {Darwin.kill(process.processIdentifier,SIGKILL)}
+                            }
+                        }
+                    }
+                }
             } catch {
                 DispatchQueue.main.async { self.launchPending=false;self.gameBusy=false;self.gameMessage="Couldn't start the game: \(error.localizedDescription)" }
             }
@@ -279,7 +335,7 @@ final class LauncherModel: ObservableObject {
     func forgetCredential() { SecItemDelete(keyQuery() as CFDictionary) }
     func signIn() { error = ""; showSignIn = true }
     func copyCommand() { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(loginCommand, forType: .string) }
-    func quit() { timer?.invalidate(); process?.terminationHandler = nil; try? input?.close(); process?.terminate(); audio?.stop(); video.pause() }
+    func quit() { resetTimer?.invalidate(); timer?.invalidate(); process?.terminationHandler = nil; try? input?.close(); process?.terminate(); audio?.stop(); video.pause() }
 }
 
 struct VideoSurface: NSViewRepresentable {

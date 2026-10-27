@@ -27,7 +27,7 @@ void SessionUpdate() {
  Send(new { type="credential", token, name=session.Name, persistent=session.IsPersistent, expires=DateTimeOffset.UtcNow.AddSeconds(3500).ToUnixTimeSeconds() });
  Send(new { type="account", name=session.Name, valid=true });
 }
-Send(new { type="ready", version="0.1.21-mac.3", home });
+Send(new { type="ready", version="0.1.21-mac.4", home });
 while (await Console.In.ReadLineAsync() is string line) {
  try {
   using var document=JsonDocument.Parse(line); var root=document.RootElement;
