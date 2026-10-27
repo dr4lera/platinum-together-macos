@@ -1,0 +1,29 @@
+PLATINUM TOGETHER — MAC COMPATIBILITY EDITION
+
+1. Drag Platinum Together into Applications, then open it there.
+2. Apple Silicon + macOS 15 or later + Rosetta 2 are required.
+   If needed: open Terminal, run softwareupdate --install-rosetta,
+   and review Apple's license yourself.
+3. Sign in through Discord using your approved game account.
+4. Click Install Game and select your own US Platinum .nds ROM.
+5. Click Play. The game account is connected before the first launch.
+   For an existing offline installation, save and exit the game,
+   click your account in the launcher, then Connect game account.
+6. Leave potato graphics enabled for best compatibility.
+
+Install / Repair installs or repairs the latest signed game release.
+Check for Updates checks availability; use Install / Repair to install.
+Settings has music/background options, game folder, logs, server refresh.
+Sign out of launcher affects download access. Sign out of the game
+through the game's own account menu.
+
+This is an unofficial Wine + Mesa compatibility package, not a native
+game rewrite. It is ad-hoc signed, not Apple notarized. macOS may ask
+you to review it under Privacy & Security before opening.
+
+No ROM, Windows game, saves, or user credentials are included.
+Data remains in ~/Library/Application Support/Platinum Together/.
+Keep backups of your saves. Battles/trades/all scenes are not fully tested.
+
+Source, releases, and detailed help:
+https://github.com/dr4lera/platinum-together-macos

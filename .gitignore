@@ -1,0 +1,10 @@
+.build/
+dist/
+**/bin/
+**/obj/
+.DS_Store
+*.nds
+*.sav
+*.log
+__pycache__/
+*.pyc
