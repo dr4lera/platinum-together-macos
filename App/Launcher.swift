@@ -22,6 +22,42 @@ final class LauncherModel: ObservableObject {
     private var pendingGamePath: String?
     private var pendingGameCredential: Data?
     @Published var accountMessage = ""
+
+    // Graphics backend (software / metal). Published so the Settings UI reflects it.
+    @Published var graphicsBackend = GraphicsBackend.current
+    @Published var gpuInstalling = false
+    @Published var gpuMessage = ""
+    var gpuInstalled: Bool { WineMetalGL.isInstalled(supportHome) }
+
+    /// Switch backend. Enabling Metal downloads + installs WineMetalGL on first use.
+    func selectBackend(_ b: GraphicsBackend) {
+        GraphicsBackend.set(b)
+        graphicsBackend = b
+        if b == .metal && !gpuInstalled { installGPU() }
+    }
+
+    func installGPU() {
+        guard !gpuInstalling else { return }
+        gpuInstalling = true; gpuMessage = "Preparing…"
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try WineMetalGL.install(into: self.supportHome) { msg in
+                    DispatchQueue.main.async { self.gpuMessage = msg }
+                }
+                DispatchQueue.main.async {
+                    self.gpuInstalling = false
+                    self.gpuMessage = "GPU rendering enabled. Start the game to use it."
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.gpuInstalling = false
+                    self.gpuMessage = "Couldn't enable GPU rendering: \(error.localizedDescription)"
+                    // Fall back to software so the user is never stuck.
+                    GraphicsBackend.set(.software); self.graphicsBackend = .software
+                }
+            }
+        }
+    }
     var gameCredentialExists: Bool {
         let users=supportHome.appendingPathComponent("WinePrefix/drive_c/users")
         return ((try? FileManager.default.contentsOfDirectory(at:users,includingPropertiesForKeys:nil)) ?? []).contains {
@@ -99,8 +135,23 @@ final class LauncherModel: ObservableObject {
                 var environment=ProcessInfo.processInfo.environment
                 environment["WINEPREFIX"]=prefix.path; environment["WINEDEBUG"]="-all"
                 environment["WINEDLLOVERRIDES"]="opengl32=n;winemenubuilder.exe=d;mscoree,mshtml=d"
-                environment["GALLIUM_DRIVER"]="llvmpipe"; environment["MESA_SHADER_CACHE_DIR"]="C:\\MesaShaderCache"; environment["LP_NUM_THREADS"]="8"
                 environment["MVK_CONFIG_LOG_LEVEL"]="0"
+                // Graphics backend: software (Mesa llvmpipe) is the default; metal
+                // (WineMetalGL) is opt-in. The deployment (prefix DLLs + env) comes
+                // from one source so files and environment never drift apart.
+                let backend=GraphicsBackend.current
+                let deployment:BackendDeployment
+                if backend == .metal, WineMetalGL.isInstalled(self.supportHome) {
+                    deployment=WineMetalGL.deployment(supportHome:self.supportHome, wineRoot:runtime)
+                } else {
+                    deployment=BackendDeployment(
+                        prefixDLLs:[("opengl32.dll",resources.appendingPathComponent("Compatibility/Mesa/opengl32.dll")),
+                                    ("libgallium_wgl.dll",resources.appendingPathComponent("Compatibility/Mesa/libgallium_wgl.dll"))],
+                        setEnv:["GALLIUM_DRIVER":"llvmpipe","MESA_SHADER_CACHE_DIR":"C:\\MesaShaderCache","LP_NUM_THREADS":"8"],
+                        unsetEnv:["WINEDLLPATH","WINEMETALGL_HOME"])
+                }
+                for (k,v) in deployment.setEnv { environment[k]=v }
+                for k in deployment.unsetEnv { environment.removeValue(forKey:k) }
                 let logDir=self.supportHome.appendingPathComponent("Logs"); try fm.createDirectory(at:logDir,withIntermediateDirectories:true)
                 let logURL=logDir.appendingPathComponent("compatibility.log")
                 _=fm.createFile(atPath:logURL.path,contents:Data())
@@ -117,9 +168,9 @@ final class LauncherModel: ObservableObject {
                 guard runningCheck.terminationStatus==0,let runningResult=try? JSONSerialization.jsonObject(with:runningBytes) as? [String:Any],runningResult["ok"] as? Bool == true else {throw NSError(domain:"Launcher",code:5,userInfo:[NSLocalizedDescriptionKey:"Couldn't check the game runtime. Open Logs in Settings for details."])}
                 guard runningResult["running"] as? Bool != true else {throw NSError(domain:"Launcher",code:6,userInfo:[NSLocalizedDescriptionKey:"The game is already running. Switch to its window, or save and close it before starting again."])}
                 let system=prefix.appendingPathComponent("drive_c/windows/system32")
-                for name in ["opengl32.dll","libgallium_wgl.dll"] {
-                    let destination=system.appendingPathComponent(name)
-                    let bytes=try Data(contentsOf:resources.appendingPathComponent("Compatibility/Mesa/"+name))
+                for dll in deployment.prefixDLLs {
+                    let destination=system.appendingPathComponent(dll.name)
+                    let bytes=try Data(contentsOf:dll.source)
                     try bytes.write(to:destination,options:.atomic)
                 }
                 if var bytes=credential {
@@ -451,6 +502,19 @@ struct LauncherView: View {
                     Toggle("Animated background",isOn:$model.motion).toggleStyle(.switch).frame(maxWidth:380)
                     Toggle("Mute launcher music",isOn:$model.muted).toggleStyle(.switch).frame(maxWidth:380)
                     Divider().padding(.vertical,4)
+                    Text("Graphics").font(.headline)
+                    Picker("Renderer",selection:Binding(get:{model.graphicsBackend},set:{model.selectBackend($0)})) {
+                        Text("Software (compatible)").tag(GraphicsBackend.software)
+                        Text("GPU — WineMetalGL (experimental)").tag(GraphicsBackend.metal)
+                    }.frame(maxWidth:380).disabled(model.gpuInstalling || model.isPlaying || model.gameBusy)
+                    if model.graphicsBackend == .metal {
+                        Text("GPU rendering uses WineMetalGL (OpenGL→Metal), downloaded from its project on first use. Experimental; if the game misbehaves, switch back to Software.").font(.system(size:12)).foregroundStyle(pale)
+                    } else {
+                        Text("Software rendering (Mesa) is the most compatible option and runs on the CPU.").font(.system(size:12)).foregroundStyle(pale)
+                    }
+                    if model.gpuInstalling { HStack { ProgressView().controlSize(.small); Text(model.gpuMessage).font(.caption) } }
+                    else if !model.gpuMessage.isEmpty { Text(model.gpuMessage).font(.caption).foregroundStyle(pale) }
+                    Divider().padding(.vertical,4)
                     Text("Account").font(.headline)
                     Text(model.account.isEmpty ? "Not signed in" : "Signed in as \(model.account)").foregroundStyle(pale)
                     Text("Saved sign-in is stored in macOS Keychain.").font(.system(size:12)).foregroundStyle(pale)
@@ -464,7 +528,7 @@ struct LauncherView: View {
                     ActionButton(title:"Open game folder") { model.openGameFolder() }
                     ActionButton(title:"Open logs") { model.openLogs() }
                     ActionButton(title:"Refresh server status") { model.send("status") }.disabled(model.busy || !model.ready)
-                    Text("Compatibility mode uses Wine and Mesa software OpenGL. Rosetta is required. Graphics performance and online features need testing on each Mac.").font(.system(size:12)).foregroundStyle(pale)
+                    Text("Runs the Windows game through Wine. Rosetta is required. Software (Mesa) rendering is the default; GPU rendering via WineMetalGL is available above. Graphics performance and online features need testing on each Mac.").font(.system(size:12)).foregroundStyle(pale)
                 }
                 Spacer(minLength:20)
             }.frame(maxWidth:.infinity,alignment:.leading).padding(28)
