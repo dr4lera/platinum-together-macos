@@ -11,7 +11,7 @@ Unofficial macOS launcher for the **current official game**, using Wine + Mesa. 
 5. Click **Install Game** and select your own **US Pokémon Platinum ROM (.nds)**. Installation downloads and verifies the official game, then imports ROM data locally. No ROM is included.
 6. Click **Play**. The launcher connects the game account on its first signed-in launch. For an existing installation that still says offline, save and close the game, open the launcher's account panel, and click **Connect game account**, then Play.
 
-The app is ad-hoc signed and **not Apple notarized**. macOS may require you to review it in Privacy & Security before allowing it to open. Build from source if you prefer. Do not disable Gatekeeper globally.
+The app is ad-hoc signed and **not Apple notarized**. On macOS 15 and later, the first launch is blocked: open **System Settings → Privacy & Security**, scroll to the message about "Platinum Together", and click **Open Anyway** (you'll be asked for your password). The button appears for about an hour after a blocked launch attempt. Drag the app into **/Applications** before first launch so macOS doesn't run it from a randomized location. As an advanced fallback you can run `xattr -d com.apple.quarantine "/Applications/Platinum Together.app"`. Build from source if you prefer. Do not disable Gatekeeper globally.
 
 ## Controls and troubleshooting
 
@@ -19,10 +19,11 @@ The app is ad-hoc signed and **not Apple notarized**. macOS may require you to r
 - **Install / Repair:** select the same original ROM to repair or install the current signed release. Keep a backup of saves before upgrading a game version.
 - **Check for Updates:** checks the signed official feed and reports the available release. It does not install automatically; use Install / Repair.
 - **Account:** Discord beta/download sign-in is saved in macOS Keychain. A Keychain prompt asks for your Mac login password. The game keeps a separate Windows-encrypted sign-in in its private Wine profile; use the game's account menu to sign out of the game. Signing out of the launcher only signs out of download access.
-- **Settings:** choose background, animation and music; open game files/logs; refresh public server status. Background media pauses while the game runs.
+- **Settings:** choose the graphics renderer (Software or GPU), background, animation and music; open game files/logs; refresh public server status. Background media pauses while the game runs.
 - **News / Guide / social buttons:** open announcements or official project pages. This release bundles no announcements, so News shows an empty state.
 - **Ctrl+R / back to last save:** keep the launcher open. If the official game hangs during its Windows restart, the launcher backs up the current save files and finishes the requested restart after about 8–12 seconds. As with any reset, unsaved progress is discarded.
-- **Black scenes or slow rendering:** the launcher applies potato graphics, disables modern graphics, and starts windowed once on first use. Mesa uses CPU rendering, so leave potato graphics enabled. A shader cache is kept in the Wine profile. No promise is made that every scene or every Mac is free of rendering problems.
+- **Black scenes or slow rendering:** the launcher applies potato graphics, disables modern graphics, and starts windowed once on first use. Software (Mesa) rendering runs on the CPU, so leave potato graphics enabled when using it. A shader cache is kept in the Wine profile. No promise is made that every scene or every Mac is free of rendering problems.
+- **GPU rendering (experimental):** Settings → Graphics → "GPU — WineMetalGL". On first enable, the launcher downloads the pinned [WineMetalGL](https://github.com/metalsharp/WineMetalGL) release (OpenGL→Metal) from its project, verifies it, and installs it under `~/Library/Application Support/Platinum Together/WineMetalGL/`. This runs the game on the GPU and allows higher graphics settings. WineMetalGL is not bundled with this app; it is fetched from upstream and is user-replaceable. If a scene misbehaves on GPU, switch back to Software in Settings. Software remains the default.
 
 Your installed game, saves, logs, and Wine profile live under `~/Library/Application Support/Platinum Together/`. Settings includes **Open game folder** and **Open logs**. Replacing the application does not delete that folder. Do not post its credential files or private logs publicly. The first application of the graphics preset preserves `platinum-pc.before-mac-compat.ini`.
 
