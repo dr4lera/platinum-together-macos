@@ -37,7 +37,7 @@ env['ZIG_GLOBAL_CACHE_DIR']=str(B/'zig-cache');env['ZIG_LOCAL_CACHE_DIR']=str(B/
 zigbin=next((B/'zig').glob('*/zig'))
 run(zigbin,'cc','-target','x86_64-windows-gnu','-O2','GameSessionHelper/session.c','-lcrypt32','-lshell32','-o',B/'GameSessionHelper.exe',env=env)
 sdk=subprocess.check_output(['xcrun','--sdk','macosx','--show-sdk-path'],text=True).strip()
-run('xcrun','swiftc','-parse-as-library','-swift-version','5','-module-cache-path',B/'swift-cache','-sdk',sdk,'-target','arm64-apple-macosx15.0','-O','App/Launcher.swift','-o',B/'PlatinumTogether')
+run('xcrun','swiftc','-parse-as-library','-swift-version','5','-module-cache-path',B/'swift-cache','-sdk',sdk,'-target','arm64-apple-macosx15.0','-O','App/GraphicsBackend.swift','App/WineMetalGL.swift','App/Launcher.swift','-o',B/'PlatinumTogether')
 stage=B/'stage-release'
 if stage.exists():shutil.rmtree(stage)
 app=stage/'Platinum Together.app';res=app/'Contents/Resources';mac=app/'Contents/MacOS';mac.mkdir(parents=True);res.mkdir()
@@ -54,7 +54,19 @@ shutil.copytree(ROOT/'licenses',res/'ThirdPartyNotices',copy_function=plain_copy
 plain_copy(ROOT/'THIRD_PARTY_NOTICES.md',res/'ThirdPartyNotices/THIRD_PARTY_NOTICES.md')
 (stage/'Applications').symlink_to('/Applications')
 plain_copy(ROOT/'START HERE.txt',stage/'START HERE.txt')
-run('codesign','--force','--deep','--sign','-',app);run('codesign','--verify','--deep','--strict',app)
+# Sign inside-out: sign nested Mach-O files that lack a valid signature, then the
+# app itself (not --deep, which mis-signs code under Resources). --deep is fine
+# for verification only.
+def _is_macho(p):
+ try:
+  with open(p,'rb') as fh: magic=fh.read(4)
+  return magic in (b'\xcf\xfa\xed\xfe',b'\xce\xfa\xed\xfe',b'\xca\xfe\xba\xbe',b'\xbe\xba\xfe\xca')
+ except OSError: return False
+for p in sorted((compat/'Wine').rglob('*')):
+ if p.is_file() and not p.is_symlink() and _is_macho(p):
+  if subprocess.run(['codesign','--verify',str(p)],capture_output=True).returncode!=0:
+   run('codesign','--force','--sign','-',p)
+run('codesign','--force','--sign','-',app);run('codesign','--verify','--deep','--strict',app)
 image=D/'PlatinumTogether-macOS-0.1.21-mac.4.dmg'
 # HFS hybrid creation works in restricted build environments where create -srcfolder fails.
 hybrid=B/'PlatinumTogether-hybrid.iso'
