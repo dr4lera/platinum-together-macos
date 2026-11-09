@@ -396,6 +396,9 @@ struct VideoSurface: NSViewRepresentable {
         override init(frame: NSRect) { super.init(frame: frame); wantsLayer = true; videoLayer.videoGravity = .resizeAspectFill; layer?.addSublayer(videoLayer) }
         required init?(coder: NSCoder) { fatalError() }
         override func layout() { super.layout(); videoLayer.frame = bounds }
+        // Decorative background: never the mouse target, so it can't steal clicks
+        // from controls that overlap it (AppKit hit-testing, cross-version).
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
     func makeNSView(context: Context) -> Surface { let view = Surface(); view.videoLayer.player = player; return view }
     func updateNSView(_ view: Surface, context: Context) { view.videoLayer.player = player }
@@ -428,10 +431,10 @@ struct LauncherView: View {
             }.frame(width:114).background(Color(red:0.055,green:0.085,blue:0.115))
             GeometryReader { geo in
                 ZStack(alignment:.topLeading) {
-                    Image(nsImage:NSImage(contentsOf:assetRoot.appendingPathComponent("\(model.scene).png")) ?? NSImage()).resizable().scaledToFill().frame(width:geo.size.width,height:geo.size.height).clipped()
+                    Image(nsImage:NSImage(contentsOf:assetRoot.appendingPathComponent("\(model.scene).png")) ?? NSImage()).resizable().scaledToFill().frame(width:geo.size.width,height:geo.size.height).clipped().allowsHitTesting(false)
                     if model.motion { VideoSurface(player:model.video).allowsHitTesting(false) }
-                    LinearGradient(colors:[.black.opacity(0.40),.black.opacity(0.05),Color(red:0.035,green:0.07,blue:0.10).opacity(0.98)],startPoint:.top,endPoint:.bottom)
-                    LinearGradient(colors:[.black.opacity(0.46),.clear],startPoint:.leading,endPoint:.trailing)
+                    LinearGradient(colors:[.black.opacity(0.40),.black.opacity(0.05),Color(red:0.035,green:0.07,blue:0.10).opacity(0.98)],startPoint:.top,endPoint:.bottom).allowsHitTesting(false)
+                    LinearGradient(colors:[.black.opacity(0.46),.clear],startPoint:.leading,endPoint:.trailing).allowsHitTesting(false)
                     VStack(alignment:.leading,spacing:0) {
                         HStack {
                             Text("PLATINUM TOGETHER").font(.system(size:11,weight:.semibold)).tracking(2)
@@ -502,18 +505,20 @@ struct LauncherView: View {
                     Toggle("Animated background",isOn:$model.motion).toggleStyle(.switch).frame(maxWidth:380)
                     Toggle("Mute launcher music",isOn:$model.muted).toggleStyle(.switch).frame(maxWidth:380)
                     Divider().padding(.vertical,4)
-                    Text("Graphics").font(.headline)
-                    Picker("Renderer",selection:Binding(get:{model.graphicsBackend},set:{model.selectBackend($0)})) {
-                        Text("Software (compatible)").tag(GraphicsBackend.software)
-                        Text("GPU — WineMetalGL (experimental)").tag(GraphicsBackend.metal)
-                    }.frame(maxWidth:380).disabled(model.gpuInstalling || model.isPlaying || model.gameBusy)
-                    if model.graphicsBackend == .metal {
-                        Text("GPU rendering uses WineMetalGL (OpenGL→Metal), downloaded from its project on first use. Experimental; if the game misbehaves, switch back to Software.").font(.system(size:12)).foregroundStyle(pale)
-                    } else {
-                        Text("Software rendering (Mesa) is the most compatible option and runs on the CPU.").font(.system(size:12)).foregroundStyle(pale)
+                    Group {
+                        Text("Graphics").font(.headline)
+                        Picker("Renderer",selection:Binding(get:{model.graphicsBackend},set:{model.selectBackend($0)})) {
+                            Text("Software (compatible)").tag(GraphicsBackend.software)
+                            Text("GPU — WineMetalGL (experimental)").tag(GraphicsBackend.metal)
+                        }.frame(maxWidth:380).disabled(model.gpuInstalling || model.isPlaying || model.gameBusy)
+                        if model.graphicsBackend == .metal {
+                            Text("GPU rendering uses WineMetalGL (OpenGL→Metal), downloaded from its project on first use. Experimental; if the game misbehaves, switch back to Software.").font(.system(size:12)).foregroundStyle(pale)
+                        } else {
+                            Text("Software rendering (Mesa) is the most compatible option and runs on the CPU.").font(.system(size:12)).foregroundStyle(pale)
+                        }
+                        if model.gpuInstalling { HStack { ProgressView().controlSize(.small); Text(model.gpuMessage).font(.caption) } }
+                        else if !model.gpuMessage.isEmpty { Text(model.gpuMessage).font(.caption).foregroundStyle(pale) }
                     }
-                    if model.gpuInstalling { HStack { ProgressView().controlSize(.small); Text(model.gpuMessage).font(.caption) } }
-                    else if !model.gpuMessage.isEmpty { Text(model.gpuMessage).font(.caption).foregroundStyle(pale) }
                     Divider().padding(.vertical,4)
                     Text("Account").font(.headline)
                     Text(model.account.isEmpty ? "Not signed in" : "Signed in as \(model.account)").foregroundStyle(pale)
